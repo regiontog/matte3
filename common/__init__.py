@@ -1,6 +1,7 @@
 from functools import wraps
 from inspect import signature
 from IPython.display import display
+import matplotlib.pylab as plt
 
 import sympy as sp
 
@@ -18,7 +19,7 @@ def disallow_none_kwargs(f):
     @wraps(f)
     def wrapper(*args, **kwargs):
         for kwarg in required_kwargs:
-            if not kwarg in kwargs:
+            if kwarg not in kwargs:
                 raise Exception(f"Keyword argument {kwarg} is required.")
 
         return f(*args, **kwargs)
@@ -71,7 +72,8 @@ def pp(fn):
 
 def with_error(results, y, x_key='x', y_key='y'):
     for result in results:
-        yield {**result, "error": abs(y(result[x_key]) - result[y_key])}
+        y_i = y(result[x_key])
+        yield {**result, "error": abs(y_i - result[y_key]), 'exact': y_i}
 
 
 #
@@ -102,6 +104,28 @@ def euler_trapezoid(f, h, t):
         return w + h*(w_n + f(t_i+h, w + h*w_n))/2
 
     return trapezoid
+
+
+def euler_midpoint(f, h, t):
+    def midpoint(w, i):
+        t_i = t(i-1)
+        w_n = f(t_i, w)
+        return w + h*f(t_i+h/2, w + h*w_n/2)
+
+    return midpoint
+
+
+def euler_rk4(f, h, t):
+    def rk4(w, i):
+        t_i = t(i-1)
+
+        s1 = f(t_i, w)
+        s2 = f(t_i + (h / 2), w + (h / 2) * s1)
+        s3 = f(t_i + (h / 2), w + (h / 2) * s2)
+        s4 = f(t_i + h, w + h * s3)
+        return w + (h / 6) * (s1 + 2 * s2 + 2 * s3 + s4)
+
+    return rk4
 
 
 @disallow_none_kwargs
@@ -145,7 +169,66 @@ def euler_error(f, iv=None, multiple_eqs_strategy=lambda eqs: eqs[0], **kwargs):
 
     return with_error(euler(f, iv=iv, **kwargs), y_fn, x_key='t', y_key='w')
 
-if __name__ == '__main__':
-    f = lambda t, y: t
 
-    pp(euler_error)(f, h=0.1, t=1, iv=(0, 1), method=euler_trapezoid)
+def plot(results, exact_key='exact', estimate_key='y', x_key='x'):
+    w = []
+    y = []
+    t = []
+
+    for result in results:
+        w.append(result[estimate_key])
+        y.append(result[exact_key])
+        t.append(result[x_key])
+
+    plt.plot(t, w)
+    plt.plot(t, y)
+
+
+def plot_gen(results, y_keys=None, x_keys=None):
+    ys = [[] for _ in y_keys]
+    xs = [[] for _ in x_keys]
+
+    for result in results:
+        for key, y in zip(y_keys, ys):
+            y.append(result[key])
+
+        for key, x in zip(x_keys, xs):
+            x.append(result[key])
+
+    for y, x in zip(ys, xs):
+        plt.plot(x, y)
+
+
+def body3(y, m1, m2, m3, g):
+    return sp.Matrix([
+        y[1],
+        (g * m2 * (y[4] - y[0])) / ((y[4] - y[0]) ** 2 + (y[6] - y[2]) ** 2) ** (3 / 2) + (g * m3 * (y[8] - y[0])) / (
+        (y[8] - y[0]) ** 2 + (y[10] - y[2]) ** 2) ** (3 / 2),
+        y[3],
+        (g * m2 * (y[6] - y[2])) / ((y[4] - y[0]) ** 2 + (y[6] - y[2]) ** 2) ** (3 / 2) + (g * m3 * (y[10] - y[2])) / (
+        (y[8] - y[0]) ** 2 + (y[10] - y[2]) ** 2) ** (3 / 2),
+        y[5],
+        (g * m1 * (y[0] - y[4])) / ((y[0] - y[4]) ** 2 + (y[2] - y[6]) ** 2) ** (3 / 2) + (g * m3 * (y[8] - y[4])) / (
+        (y[8] - y[4]) ** 2 + (y[10] - y[6]) ** 2) ** (3 / 2),
+        y[7],
+        (g * m1 * (y[2] - y[6])) / ((y[0] - y[4]) ** 2 + (y[2] - y[6]) ** 2) ** (3 / 2) + (g * m3 * (y[10] - y[6])) / (
+        (y[8] - y[4]) ** 2 + (y[10] - y[6]) ** 2) ** (3 / 2),
+        y[9],
+        (g * m2 * (y[4] - y[8])) / ((y[4] - y[8]) ** 2 + (y[6] - y[10]) ** 2) ** (3 / 2) + (g * m1 * (y[0] - y[8])) / (
+        (y[0] - y[8]) ** 2 + (y[2] - y[10]) ** 2) ** (3 / 2),
+        y[11],
+        (g * m2 * (y[6] - y[10])) / ((y[4] - y[8]) ** 2 + (y[6] - y[10]) ** 2) ** (3 / 2) + (g * m1 * (y[2] - y[10])) / (
+        (y[0] - y[8]) ** 2 + (y[2] - y[10]) ** 2) ** (3 / 2)
+    ])
+
+
+def body3_y():
+    x1, y1, v1x, v1y = sp.symbols("x_1 y_1 v_1_x v_1_y")
+    x2, y2, v2x, v2y = sp.symbols("x_2 y_2 v_2_x v_2_y")
+    x3, y3, v3x, v3y = sp.symbols("x_3 y_3 v_3_x v_3_y")
+
+    return sp.Matrix([x1, v1x, y1, v1y, x2, v2x, y2, v2y, x3, v3x, y3, v3y])
+
+
+def body3_iv(b1, v1, b2, v2, b3, v3):
+    return sp.Matrix([b1[0], v1[0], b1[1], v1[1], b2[0], v2[0], b2[1], v2[1], b3[0], v3[0], b3[1], v3[1]])
